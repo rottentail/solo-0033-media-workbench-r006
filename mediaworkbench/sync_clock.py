@@ -25,39 +25,52 @@ def calibrate(anchors, duration_ms):
     return [[str(a), str(b)] for a, b in points]
 
 
+def _points(camera):
+    return [(Fraction(a), Fraction(b)) for a, b in camera['clock']]
+
+
+def bounds(camera):
+    """Whole-sample programme extent covered by the observations."""
+    clock = camera['clock']
+    return int(Fraction(clock[0][0])), int(Fraction(clock[-1][0]))
+
+
 def position(camera, programme_sample):
-    points = [(Fraction(a), Fraction(b)) for a, b in camera['clock']]
+    """Exact piecewise-linear programme->source mapping, snapped to a source frame.
+
+    Each pair of adjacent alignment observations is its own linear segment, so
+    every anchor is honoured exactly and drift never accumulates between
+    alignment points. No extrapolation: programme samples outside the observed
+    clock range return None instead of inventing coverage.
+    """
+    points = _points(camera)
     t = Fraction(programme_sample)
-    if t < points[0][0] or t >= points[-1][0]:
-        return None
     first_programme, first_source = points[0]
     last_programme, last_source = points[-1]
-    programme_span = last_programme - first_programme
-    source_span = last_source - first_source
-    if programme_span <= 0 or source_span <= 0:
-        raise ValueError('invalid camera calibration span')
-    progress = (t-first_programme) / programme_span
-    nominal = first_source + progress*source_span
-    residuals = []
-    for programme, source in points[1:-1]:
-        predicted = first_source + (programme-first_programme)*source_span/programme_span
-        residuals.append(source-predicted)
-    if residuals:
-        adjustment = sum(residuals, Fraction(0)) / len(residuals)
-        centre_weight = 1 - abs(2*progress-1)
-        nominal += adjustment*centre_weight
-    nearest_frame = int(nominal / FRAME + Fraction(1, 2))
-    result = Fraction(nearest_frame * FRAME)
-    return min(last_source-1, max(first_source, result))
+    if t < first_programme or t > last_programme:
+        return None
+    for index in range(len(points) - 1):
+        programme, source = points[index]
+        next_programme, next_source = points[index + 1]
+        if programme <= t <= next_programme:
+            span = next_programme - programme
+            if span <= 0 or next_source <= source:
+                raise ValueError('invalid camera calibration segment')
+            exact = source + (t - programme) * (next_source - source) / span
+            nearest_frame = int(exact / FRAME + Fraction(1, 2))
+            return Fraction(nearest_frame * FRAME)
+    return last_source
 
 
 def covers(camera, start, end):
-    points = camera['clock']
-    return Fraction(points[0][0]) <= start and end <= Fraction(points[-1][0])
+    """A frame is covered only when its whole span sits inside the observations."""
+    clock = camera['clock']
+    return Fraction(clock[0][0]) <= start and end <= Fraction(clock[-1][0])
 
 
 def score(camera, programme_sample):
+    sample = int(programme_sample)
     for interval in camera['quality']:
-        if interval['start_sample'] <= programme_sample < interval['end_sample']:
+        if interval['start_sample'] <= sample < interval['end_sample']:
             return interval['score']
     return 0

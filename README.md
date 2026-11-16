@@ -253,9 +253,16 @@ lexicographically first sequence of input camera indexes. No feasible full
 sequence means no plan is saved.
 
 `GET /multicam-plans/{id}` reads the checksummed frozen result, and
-`POST /multicam-plans/{id}/render` with `destination` exports it. Pictures use
-the calibrated source time at each programme frame midpoint, including after
-camera changes. The continuous master audio is independent of camera cuts.
+`POST /multicam-plans/{id}/render` with `destination` exports it. The saved
+record carries `shots`, the total `score`, `cut_count`, and one `frame_scores`
+row per output frame naming the camera rendered there and the score it earns;
+those rows reproduce the saved total exactly, so the record explains the final
+pictures. Pictures use the calibrated source time at each programme frame
+midpoint, including after camera changes: returning to a camera continues the
+same programme action from that camera's own clock rather than replaying its
+opening frames, and a camera whose stream cannot supply a requested frame fails
+instead of holding its last frame. The continuous master audio is independent
+of camera cuts.
 Later timeline edits do not affect saved camera plans. Original reconnection
 remains supported; originals must match their saved content identities.
 Rendering uses one disk materialization per camera occurrence and bounded
